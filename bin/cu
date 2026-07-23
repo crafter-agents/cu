@@ -127,7 +127,7 @@ case "$action" in
   scroll)
     dir="${1:-down}"; amt="${2:-5}"
     case "$OS" in
-      macos)   osascript -e "tell application \"System Events\" to scroll {0, $([ \"$dir\" = up ] && echo $amt || echo -$amt)}" 2>/dev/null || die "scroll needs accessibility" ;;
+      macos)   code=$([ "$dir" = up ] && echo 116 || echo 121); for _ in $(seq 1 "$amt"); do osascript -e "tell application \"System Events\" to key code $code" 2>/dev/null || die "scroll needs accessibility"; done ;;
       linux)   cu_linux_display; b=$([ "$dir" = up ] && echo 4 || echo 5); for _ in $(seq 1 "$amt"); do xdotool click "$b"; done ;;
       windows) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')" ;;
       *) die "scroll unsupported on $OS" ;;
