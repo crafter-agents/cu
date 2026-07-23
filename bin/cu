@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# cu — cross-platform computer-use CLI. One agnostic verb, the right OS primitive.
+# Usage:  cu <action> [args]
+# Actions: capture <file> | launch <app> | type <text> | key <chord> |
+#          move <x> <y> | click [x y] | read-text | os
+# The agent writes `cu type "hi"`; cu picks osascript / SendKeys / xdotool by OS.
+# Built by Kai. Action vocabulary follows agent-browser's native interaction set.
+set -uo pipefail
+
+# --- OS detection (agnostic core) --------------------------------------------
+cu_os() {
+  case "$(uname -s)" in
+    Darwin) echo "macos" ;;
+    Linux)  echo "linux" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    *) [ -n "${OS:-}" ] && echo "windows" || echo "unknown" ;;
+  esac
+}
+OS="$(cu_os)"
+: "${CU_DISPLAY:=:99}"   # linux xvfb display
+
+die() { echo "cu: $*" >&2; exit 1; }
+
+# --- Linux helper: ensure a display exists -----------------------------------
+cu_linux_display() {
+  export DISPLAY="$CU_DISPLAY"
+  if ! xdpyinfo >/dev/null 2>&1; then
+    command -v Xvfb >/dev/null || sudo apt-get install -y xvfb xdotool imagemagick >/dev/null 2>&1
+    Xvfb "$CU_DISPLAY" -screen 0 1280x1024x24 >/dev/null 2>&1 &
+    sleep 2
+  fi
+}
+
+# --- actions -----------------------------------------------------------------
+action="${1:-}"; shift || true
+case "$action" in
+  os) echo "$OS" ;;
+
+  capture)
+    out="${1:?cu capture <file>}"
+    case "$OS" in
+      macos)   screencapture -x "$out" ;;
+      linux)   cu_linux_display; import -window root "$out" ;;
+      windows) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \$v=[System.Windows.Forms.SystemInformation]::VirtualScreen; \$b=New-Object System.Drawing.Bitmap(\$v.Width,\$v.Height); [System.Drawing.Graphics]::FromImage(\$b).CopyFromScreen(\$v.Left,\$v.Top,0,0,\$b.Size); \$b.Save('$out')" ;;
+      *) die "capture unsupported on $OS" ;;
+    esac
+    [ -f "$out" ] && echo "captured $out ($(wc -c <"$out" | tr -d ' ')B)" || die "capture failed"
+    ;;
+
+  launch)
+    app="${1:?cu launch <app>}"
+    case "$OS" in
+      macos)   osascript -e "tell application \"$app\" to activate" ;;
+      linux)   cu_linux_display; ( "$app" >/dev/null 2>&1 & ) ; sleep 1 ;;
+      windows) powershell -NoProfile -Command "Start-Process '$app'" ;;
+      *) die "launch unsupported on $OS" ;;
+    esac
+    echo "launched $app on $OS"
+    ;;
+
+  type)
+    text="${1:?cu type <text>}"
+    case "$OS" in
+      macos)   osascript -e "tell application \"System Events\" to keystroke \"$text\"" ;;
+      linux)   cu_linux_display; xdotool type -- "$text" ;;
+      windows) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('$text')" ;;
+      *) die "type unsupported on $OS" ;;
+    esac
+    echo "typed on $OS"
+    ;;
+
+  key)
+    chord="${1:?cu key <chord>}"   # e.g. cmd+a, ctrl+c
+    case "$OS" in
+      macos)
+        # map chord -> osascript "using ... down"
+        base="${chord##*+}"; mods="${chord%+*}"
+        using=""
+        case "$mods" in *cmd*|*meta*) using="$using command down,";; esac
+        case "$mods" in *ctrl*) using="$using control down,";; esac
+        case "$mods" in *shift*) using="$using shift down,";; esac
+        case "$mods" in *alt*|*opt*) using="$using option down,";; esac
+        using="{${using%,}}"
+        osascript -e "tell application \"System Events\" to keystroke \"$base\" using $using" ;;
+      linux)   cu_linux_display; xdotool key "$(echo "$chord" | sed 's/cmd/super/; s/+/+/g')" ;;
+      windows)
+        # SendKeys: ^=ctrl %=alt +=shift  (cmd->ctrl)
+        sk="$chord"; sk="${sk//cmd+/^}"; sk="${sk//ctrl+/^}"; sk="${sk//alt+/%}"; sk="${sk//shift+/+}"
+        powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('$sk')" ;;
+      *) die "key unsupported on $OS" ;;
+    esac
+    echo "sent $chord on $OS"
+    ;;
+
+  move)
+    x="${1:?cu move <x> <y>}"; y="${2:?cu move <x> <y>}"
+    case "$OS" in
+      macos)   osascript -e "tell application \"System Events\" to set mouseLoc to {$x, $y}" 2>/dev/null || cliclick "m:$x,$y" 2>/dev/null || die "install cliclick for mouse on macOS" ;;
+      linux)   cu_linux_display; xdotool mousemove "$x" "$y" ;;
+      windows) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Cursor]::Position=New-Object System.Drawing.Point($x,$y)" ;;
+      *) die "move unsupported on $OS" ;;
+    esac
+    echo "moved to $x,$y on $OS"
+    ;;
+
+  read-text)
+    case "$OS" in
+      macos)   osascript -e 'tell application "TextEdit" to get text of front document' 2>/dev/null ;;
+      *) die "read-text is macOS-only for now" ;;
+    esac
+    ;;
+
+  ""|-h|--help|help)
+    grep '^# ' "$0" | sed 's/^# //'
+    ;;
+  *) die "unknown action '$action' (try: cu help)" ;;
+esac
