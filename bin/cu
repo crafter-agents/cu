@@ -106,6 +106,39 @@ case "$action" in
     echo "moved to $x,$y on $OS"
     ;;
 
+  click)
+    # cu click [x y]  -- click at coords, or current position if omitted
+    x="${1:-}"; y="${2:-}"
+    case "$OS" in
+      macos)   [ -n "$x" ] && osascript -e "tell application \"System Events\" to click at {$x, $y}" 2>/dev/null || cliclick "c:${x:-.},${y:-.}" 2>/dev/null || die "install cliclick for click on macOS" ;;
+      linux)   cu_linux_display; [ -n "$x" ] && xdotool mousemove "$x" "$y"; xdotool click 1 ;;
+      windows) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; if('$x'){[System.Windows.Forms.Cursor]::Position=New-Object System.Drawing.Point($x,$y)}; Add-Type 'using System;using System.Runtime.InteropServices;public class M{[DllImport(\"user32.dll\")]public static extern void mouse_event(uint f,uint x,uint y,uint d,int e);}'; [M]::mouse_event(2,0,0,0,0);[M]::mouse_event(4,0,0,0,0)" ;;
+      *) die "click unsupported on $OS" ;;
+    esac
+    echo "clicked${x:+ at $x,$y} on $OS"
+    ;;
+
+  dblclick)
+    x="${1:-}"; y="${2:-}"
+    "$0" click ${x:+$x $y} >/dev/null; "$0" click ${x:+$x $y} >/dev/null
+    echo "double-clicked${x:+ at $x,$y} on $OS"
+    ;;
+
+  scroll)
+    dir="${1:-down}"; amt="${2:-5}"
+    case "$OS" in
+      macos)   osascript -e "tell application \"System Events\" to scroll {0, $([ \"$dir\" = up ] && echo $amt || echo -$amt)}" 2>/dev/null || die "scroll needs accessibility" ;;
+      linux)   cu_linux_display; b=$([ "$dir" = up ] && echo 4 || echo 5); for _ in $(seq 1 "$amt"); do xdotool click "$b"; done ;;
+      windows) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')" ;;
+      *) die "scroll unsupported on $OS" ;;
+    esac
+    echo "scrolled $dir $amt on $OS"
+    ;;
+
+  select-all)  "$0" key "$([ "$OS" = macos ] && echo cmd+a || echo ctrl+a)" ;;
+  copy)        "$0" key "$([ "$OS" = macos ] && echo cmd+c || echo ctrl+c)" ;;
+  paste)       "$0" key "$([ "$OS" = macos ] && echo cmd+v || echo ctrl+v)" ;;
+
   read-text)
     case "$OS" in
       macos)   osascript -e 'tell application "TextEdit" to get text of front document' 2>/dev/null ;;
