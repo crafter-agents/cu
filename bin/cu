@@ -2,7 +2,7 @@
 # cu — cross-platform computer-use CLI. One agnostic verb, the right OS primitive.
 # Usage:  cu <action> [args]
 # Actions: capture <file> | launch <app> | type <text> | key <chord> |
-#          move <x> <y> | click [x y] | scroll | diff <a> <b> | read-text | os
+#          move <x> <y> | click [x y] | scroll | diff <a> <b> | record <prefix> [n] [iv] | read-text | os
 # The agent writes `cu type "hi"`; cu picks osascript / SendKeys / xdotool by OS.
 # Built by Kai. Action vocabulary follows agent-browser's native interaction set.
 set -uo pipefail
@@ -151,6 +151,17 @@ case "$action" in
     else
       die "diff needs python3+Pillow or ImageMagick"
     fi
+    ;;
+
+  record)
+    # cu record <prefix> [count] [interval_s] -- N sequential captures
+    prefix="${1:?cu record <prefix> [count] [interval]}"; n="${2:-5}"; iv="${3:-1}"
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      "$0" capture "${prefix}-$(printf %03d "$i").png" >/dev/null 2>&1 || die "record: capture $i failed"
+      i=$((i+1)); [ "$i" -lt "$n" ] && sleep "$iv"
+    done
+    echo "recorded $n frames to ${prefix}-NNN.png on $OS"
     ;;
 
   read-text)
