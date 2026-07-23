@@ -143,25 +143,13 @@ case "$action" in
     a="${1:?cu diff <a.png> <b.png>}"; b="${2:?cu diff <a.png> <b.png>}"
     [ -f "$a" ] && [ -f "$b" ] || die "diff: both files must exist"
     if command -v python3 >/dev/null 2>&1 && python3 -c "import PIL" 2>/dev/null; then
-      python3 - "$a" "$b" <<'"'"'PY'"'"'
-import sys
-from PIL import Image, ImageChops
-a=Image.open(sys.argv[1]).convert("RGB"); b=Image.open(sys.argv[2]).convert("RGB")
-if a.size!=b.size: b=b.resize(a.size)
-diff=ImageChops.difference(a,b)
-changed=sum(1 for p in diff.getdata() if p[0]+p[1]+p[2]>30)
-total=a.size[0]*a.size[1]
-pct=round(100*changed/total,2)
-print(f"changed {pct}%")
-print("SAME" if pct<1 else "CHANGED")
-PY
+      python3 -c "import sys; from PIL import Image, ImageChops; a=Image.open(sys.argv[1]).convert('RGB'); b=Image.open(sys.argv[2]).convert('RGB'); b=b if a.size==b.size else b.resize(a.size); d=ImageChops.difference(a,b); ch=sum(1 for p in d.getdata() if p[0]+p[1]+p[2]>30); tot=a.size[0]*a.size[1]; pct=round(100*ch/tot,2); print('changed %s%%' % pct); print('SAME' if pct<1 else 'CHANGED')" "$a" "$b"
     elif command -v compare >/dev/null 2>&1; then
-      # ImageMagick AE metric (absolute error pixel count)
-      n=$(compare -metric AE "$a" "$b" null: 2>&1 | tr -d '"'"'\n'"'"' | grep -oE '"'"'^[0-9]+'"'"' || echo 0)
-      echo "changed-pixels $n"
+      n=$(compare -metric AE "$a" "$b" null: 2>&1 | tr -cd '0-9' )
+      echo "changed-pixels ${n:-0}"
       [ "${n:-0}" -lt 500 ] && echo "SAME" || echo "CHANGED"
     else
-      die "diff needs python3+Pillow or ImageMagick (compare)"
+      die "diff needs python3+Pillow or ImageMagick"
     fi
     ;;
 
