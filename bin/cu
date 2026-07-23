@@ -2,7 +2,7 @@
 # cu — cross-platform computer-use CLI. One agnostic verb, the right OS primitive.
 # Usage:  cu <action> [args]
 # Actions: capture <file> | launch <app> | type <text> | key <chord> |
-#          move <x> <y> | click [x y] | read-text | os
+#          move <x> <y> | click [x y] | scroll | diff <a> <b> | read-text | os
 # The agent writes `cu type "hi"`; cu picks osascript / SendKeys / xdotool by OS.
 # Built by Kai. Action vocabulary follows agent-browser's native interaction set.
 set -uo pipefail
@@ -138,6 +138,32 @@ case "$action" in
   select-all)  "$0" key "$([ "$OS" = macos ] && echo cmd+a || echo ctrl+a)" ;;
   copy)        "$0" key "$([ "$OS" = macos ] && echo cmd+c || echo ctrl+c)" ;;
   paste)       "$0" key "$([ "$OS" = macos ] && echo cmd+v || echo ctrl+v)" ;;
+
+  diff)
+    a="${1:?cu diff <a.png> <b.png>}"; b="${2:?cu diff <a.png> <b.png>}"
+    [ -f "$a" ] && [ -f "$b" ] || die "diff: both files must exist"
+    if command -v python3 >/dev/null 2>&1 && python3 -c "import PIL" 2>/dev/null; then
+      python3 - "$a" "$b" <<'"'"'PY'"'"'
+import sys
+from PIL import Image, ImageChops
+a=Image.open(sys.argv[1]).convert("RGB"); b=Image.open(sys.argv[2]).convert("RGB")
+if a.size!=b.size: b=b.resize(a.size)
+diff=ImageChops.difference(a,b)
+changed=sum(1 for p in diff.getdata() if p[0]+p[1]+p[2]>30)
+total=a.size[0]*a.size[1]
+pct=round(100*changed/total,2)
+print(f"changed {pct}%")
+print("SAME" if pct<1 else "CHANGED")
+PY
+    elif command -v compare >/dev/null 2>&1; then
+      # ImageMagick AE metric (absolute error pixel count)
+      n=$(compare -metric AE "$a" "$b" null: 2>&1 | tr -d '"'"'\n'"'"' | grep -oE '"'"'^[0-9]+'"'"' || echo 0)
+      echo "changed-pixels $n"
+      [ "${n:-0}" -lt 500 ] && echo "SAME" || echo "CHANGED"
+    else
+      die "diff needs python3+Pillow or ImageMagick (compare)"
+    fi
+    ;;
 
   read-text)
     case "$OS" in
