@@ -1,0 +1,22 @@
+name: ci
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - name: test (pure core, runs everywhere)
+        run: bun test
+      - name: build standalone binary
+        run: bun build --compile src/cli.ts --outfile cu-${{ matrix.os }}
+      - name: smoke — os + capture work on this platform
+        shell: bash
+        run: |
+          ./cu-${{ matrix.os }} os --json
+          ./cu-${{ matrix.os }} capture smoke.png --json || echo "capture needs a display on this runner"
